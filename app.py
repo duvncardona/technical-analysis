@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from analysis import (
@@ -9,17 +10,25 @@ from analysis import (
     PATTERN_SPECS,
     SMA_CROSS_BEAR_COL,
     SMA_CROSS_BULL_COL,
+    PriceColumn,
     add_indicators,
     build_chart,
+    build_fib_extension_chart,
     build_ticker_summary,
+    calc_fib_extension_levels,
     default_date_range,
+    default_fib_dates,
     download_ohlcv,
+    fib_date_label,
+    price_at,
     sma_cross_hit_count,
+    validate_fib_points,
 )
 from i18n import (
     MEMBERS,
     TICKER_GROUPS,
     considerations,
+    fib_price_column,
     label_dataframe_column,
     pattern,
     s,
@@ -91,9 +100,10 @@ if load or "df" not in st.session_state or st.session_state.get("ticker") != tic
     st.session_state["start"] = start
     st.session_state["end"] = end
 
-tab_dashboard, tab_tickers, tab_considerations, tab_members = st.tabs(
+tab_dashboard, tab_fibonacci, tab_tickers, tab_considerations, tab_members = st.tabs(
     [
         s("tab_dashboard"),
+        s("tab_fibonacci"),
         s("tab_tickers"),
         s("tab_considerations"),
         s("tab_members"),
@@ -127,6 +137,109 @@ with tab_tickers:
         st.write(info["description"])
         if index < len(entries) - 1:
             st.divider()
+
+with tab_fibonacci:
+    st.subheader(s("fib_title"))
+    st.markdown(s("fib_intro"))
+
+    if "df" not in st.session_state:
+        st.info(s("fib_load_data_prompt"))
+    else:
+        df = st.session_state["df"]
+        active_ticker = st.session_state["ticker"]
+        trading_dates = list(df.index)
+        default_a, default_b, default_c = default_fib_dates(df)
+        price_options: list[PriceColumn] = ["Close", "High", "Low"]
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.markdown(f"**{s('fib_point_a')}**")
+            price_col_a = st.selectbox(
+                s("fib_price_field"),
+                options=price_options,
+                format_func=fib_price_column,
+                key="fib_price_a",
+            )
+            idx_a = st.selectbox(
+                s("fib_date"),
+                options=trading_dates,
+                index=trading_dates.index(default_a),
+                format_func=lambda idx: fib_date_label(df, idx, price_col_a),
+                key="fib_date_a",
+            )
+        with col_b:
+            st.markdown(f"**{s('fib_point_b')}**")
+            price_col_b = st.selectbox(
+                s("fib_price_field"),
+                options=price_options,
+                format_func=fib_price_column,
+                key="fib_price_b",
+            )
+            idx_b = st.selectbox(
+                s("fib_date"),
+                options=trading_dates,
+                index=trading_dates.index(default_b),
+                format_func=lambda idx: fib_date_label(df, idx, price_col_b),
+                key="fib_date_b",
+            )
+        with col_c:
+            st.markdown(f"**{s('fib_point_c')}**")
+            price_col_c = st.selectbox(
+                s("fib_price_field"),
+                options=price_options,
+                format_func=fib_price_column,
+                key="fib_price_c",
+            )
+            idx_c = st.selectbox(
+                s("fib_date"),
+                options=trading_dates,
+                index=trading_dates.index(default_c),
+                format_func=lambda idx: fib_date_label(df, idx, price_col_c),
+                key="fib_date_c",
+            )
+
+        calculate_fib = st.button(
+            s("fib_calculate"),
+            type="primary",
+            use_container_width=True,
+            key="fib_calculate",
+        )
+
+        validation_error = validate_fib_points(idx_a, idx_b, idx_c)
+        if validation_error:
+            st.warning(s(validation_error))
+        elif calculate_fib:
+            price_a = price_at(df, idx_a, price_col_a)
+            price_b = price_at(df, idx_b, price_col_b)
+            price_c = price_at(df, idx_c, price_col_c)
+            impulse = price_b - price_a
+
+            fig = build_fib_extension_chart(
+                df,
+                active_ticker,
+                idx_a,
+                idx_b,
+                idx_c,
+                price_col_a=price_col_a,
+                price_col_b=price_col_b,
+                price_col_c=price_col_c,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.subheader(s("fib_levels_title"))
+            st.caption(
+                s(
+                    "fib_levels_caption",
+                    impulse=impulse,
+                    price_c=price_c,
+                )
+            )
+            levels = calc_fib_extension_levels(price_a, price_b, price_c)
+            levels_df = pd.DataFrame(
+                levels,
+                columns=[s("fib_ratio"), s("fib_level")],
+            )
+            st.dataframe(levels_df, use_container_width=True, hide_index=True)
 
 with tab_dashboard:
     if "df" not in st.session_state:

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Callable
+from typing import Callable, Literal
+
+PriceColumn = Literal["Close", "High", "Low"]
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -13,6 +15,7 @@ import yfinance as yf
 from plotly.subplots import make_subplots
 
 from i18n import chart as chart_label
+from i18n import fib_price_column
 from i18n import pattern as pattern_text
 from i18n import s
 
@@ -80,6 +83,8 @@ NEUTRAL_PATTERN_KEYS = frozenset({"doji_star", "harami"})
 RECENT_TRADING_DAYS = 20
 SMA_CROSS_BULL_COL = "SMA_CROSS_BULL"
 SMA_CROSS_BEAR_COL = "SMA_CROSS_BEAR"
+FIB_RATIOS = [0.0, 0.618, 1.0, 1.618, 2.618]
+FIB_POINT_COLORS = {"A": "lime", "B": "gold", "C": "deepskyblue"}
 
 
 def download_ohlcv(
@@ -351,6 +356,197 @@ def build_chart(
     if pattern_keys:
         add_pattern_markers(fig, df, pattern_keys)
     return fig
+
+
+def price_at(df: pd.DataFrame, index_value, column: PriceColumn = "Close") -> float:
+    """Return the selected OHLC field at a trading date."""
+    return float(df.loc[index_value, column])
+
+
+def calc_fib_extension_levels(
+    price_a: float,
+    price_b: float,
+    price_c: float,
+    ratios: list[float] | None = None,
+) -> list[tuple[float, float]]:
+    """Fibonacci extension: level = C + ratio * (B - A)."""
+    impulse = price_b - price_a
+    selected = FIB_RATIOS if ratios is None else ratios
+    return [(ratio, price_c + ratio * impulse) for ratio in selected]
+
+
+def add_fib_swing_markers(
+    fig: go.Figure,
+    swing_points: list[tuple[str, object, float]],
+) -> go.Figure:
+    """Draw A/B/C markers and optional connecting line."""
+    if not swing_points:
+        return fig
+
+    labels = [label for label, _, _ in swing_points]
+    indices = [idx for _, idx, _ in swing_points]
+    prices = [price for _, _, price in swing_points]
+
+    fig.add_trace(
+        go.Scatter(
+            x=indices,
+            y=prices,
+            mode="lines+markers" if len(swing_points) > 1 else "markers",
+            line=dict(color="white", width=2, dash="dash"),
+            marker=dict(
+                size=14,
+                color=[FIB_POINT_COLORS[label] for label in labels],
+            ),
+            name=s("fib_swing_legend"),
+        ),
+        row=1,
+        col=1,
+    )
+
+    for label, idx, price in swing_points:
+        color = FIB_POINT_COLORS[label]
+        fig.add_annotation(
+            x=idx,
+            y=price,
+            xref="x",
+            yref="y",
+            text=f"{label}<br>{price:.2f}",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1,
+            arrowcolor=color,
+            ax=0,
+            ay=-30 if label == "B" else 30,
+            font=dict(color=color, size=12),
+            bgcolor="rgba(26, 31, 46, 0.95)",
+            bordercolor=color,
+            borderwidth=1,
+            row=1,
+            col=1,
+        )
+    return fig
+
+
+def add_fib_level_lines(
+    fig: go.Figure,
+    df: pd.DataFrame,
+    price_a: float,
+    price_b: float,
+    price_c: float,
+    ratios: list[float] | None = None,
+) -> go.Figure:
+    """Draw horizontal Fibonacci extension levels."""
+    x_start = df.index[0]
+    x_end = df.index[-1]
+    for ratio, level in calc_fib_extension_levels(price_a, price_b, price_c, ratios):
+        fig.add_shape(
+            type="line",
+            xref="x",
+            yref="y",
+            x0=x_start,
+            y0=level,
+            x1=x_end,
+            y1=level,
+            line=dict(color="purple", width=2, dash="dot"),
+            opacity=0.7,
+            layer="below",
+            row=1,
+            col=1,
+        )
+        fig.add_annotation(
+            x=x_end,
+            y=level,
+            xref="x",
+            yref="y",
+            text=s("fib_level_label", ratio=ratio),
+            showarrow=False,
+            font=dict(color="purple", size=11),
+            xanchor="left",
+            row=1,
+            col=1,
+        )
+    return fig
+
+
+def add_fib_extension(
+    fig: go.Figure,
+    df: pd.DataFrame,
+    idx_a,
+    price_a: float,
+    idx_b,
+    price_b: float,
+    idx_c,
+    price_c: float,
+    ratios: list[float] | None = None,
+) -> go.Figure:
+    """Draw swing points A/B/C and horizontal Fibonacci extension levels."""
+    swing_points = [
+        ("A", idx_a, price_a),
+        ("B", idx_b, price_b),
+        ("C", idx_c, price_c),
+    ]
+    add_fib_swing_markers(fig, swing_points)
+    add_fib_level_lines(fig, df, price_a, price_b, price_c, ratios)
+    return fig
+
+
+def build_fib_extension_chart(
+    df: pd.DataFrame,
+    ticker: str,
+    idx_a,
+    idx_b,
+    idx_c,
+    price_col_a: PriceColumn = "Close",
+    price_col_b: PriceColumn = "Close",
+    price_col_c: PriceColumn = "Close",
+) -> go.Figure:
+    """Candlestick chart with user-selected Fibonacci swing points and levels."""
+    fig = build_candlestick_with_volume(df, ticker)
+    add_fib_extension(
+        fig,
+        df,
+        idx_a,
+        price_at(df, idx_a, price_col_a),
+        idx_b,
+        price_at(df, idx_b, price_col_b),
+        idx_c,
+        price_at(df, idx_c, price_col_c),
+    )
+    return fig
+
+
+def fib_date_label(
+    df: pd.DataFrame,
+    index_value,
+    price_column: PriceColumn,
+) -> str:
+    """Human-readable label for date select boxes."""
+    return s(
+        "fib_date_option",
+        date=_format_index_date(index_value),
+        column=fib_price_column(price_column),
+        price=price_at(df, index_value, price_column),
+    )
+
+
+def default_fib_dates(df: pd.DataFrame) -> tuple:
+    """Spread default A/B/C picks across the loaded range."""
+    n = len(df)
+    if n < 3:
+        idx = df.index[-1]
+        return idx, idx, idx
+    positions = [max(0, n // 4 - 1), max(0, n // 2 - 1), n - 1]
+    return tuple(df.index[pos] for pos in positions)
+
+
+def validate_fib_points(idx_a, idx_b, idx_c) -> str | None:
+    """Return an i18n error key when A/B/C are invalid, else None."""
+    if idx_a == idx_b or idx_b == idx_c or idx_a == idx_c:
+        return "fib_error_distinct"
+    if not (idx_a < idx_b < idx_c):
+        return "fib_error_order"
+    return None
 
 
 def default_date_range() -> tuple[date, date]:

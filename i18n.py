@@ -27,6 +27,7 @@ STRINGS: dict[str, str] = {
     "raw_data": "Datos en bruto (últimas 10 filas)",
     "considerations": "Consideraciones (ejercicio académico)",
     "tab_dashboard": "Análisis",
+    "tab_fibonacci": "Fibonacci",
     "tab_tickers": "Símbolos",
     "tab_considerations": "Consideraciones",
     "tab_members": "Integrantes",
@@ -120,6 +121,33 @@ STRINGS: dict[str, str] = {
     ),
     "error_no_data": "No hay datos para {ticker!r} en el rango de fechas seleccionado.",
     "error_missing_columns": "Faltan columnas en la descarga: {columns}",
+    "fib_title": "Extensión de Fibonacci",
+    "fib_intro": (
+        "Elige **tres fechas en orden cronológico** para definir el tramo A→B→C. "
+        "**A** marca el inicio del impulso, **B** el fin del impulso y **C** el fin "
+        "del retroceso. Los niveles se calculan con **C + ratio × (B − A)**."
+    ),
+    "fib_point_a": "Punto A (inicio del impulso)",
+    "fib_point_b": "Punto B (fin del impulso)",
+    "fib_point_c": "Punto C (fin del retroceso)",
+    "fib_date": "Fecha",
+    "fib_price_field": "Precio del punto",
+    "fib_price_close": "Cierre",
+    "fib_price_high": "Máximo",
+    "fib_price_low": "Mínimo",
+    "fib_calculate": "Calcular niveles",
+    "fib_load_data_prompt": (
+        "Carga datos en la barra lateral antes de calcular la extensión de Fibonacci."
+    ),
+    "fib_error_distinct": "A, B y C deben ser **fechas distintas**.",
+    "fib_error_order": "Las fechas deben ir en orden: **A antes de B antes de C**.",
+    "fib_levels_title": "Niveles calculados",
+    "fib_levels_caption": "Impulso (B − A): **{impulse:.2f}** · Precio en C: **{price_c:.2f}**",
+    "fib_date_option": "{date} — {column}: {price:.2f}",
+    "fib_level_label": "Fib {ratio}",
+    "fib_swing_legend": "Tramo A→B→C",
+    "fib_ratio": "Ratio",
+    "fib_level": "Nivel",
 }
 
 CONSIDERATIONS = """
@@ -370,3 +398,12 @@ def ticker_catalog(symbol: str) -> dict[str, str]:
 
 def label_dataframe_column(column: str) -> str:
     return DATAFRAME_COLUMNS.get(column, column)
+
+
+def fib_price_column(column: str) -> str:
+    mapping = {
+        "Close": "fib_price_close",
+        "High": "fib_price_high",
+        "Low": "fib_price_low",
+    }
+    return s(mapping[column])
